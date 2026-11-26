@@ -17,7 +17,7 @@ label{display:block;font-weight:650;margin:12px 0 6px}input{width:100%;padding:1
 </style></head>
 <body><main class="wrap">
 <section class="hero"><h1>HELLFIRE <span>eSPORTS</span></h1><p class="sub">SQUAD SCRIMS • 4 PLAYERS PER TEAM</p><div class="price">₹40 / TEAM</div><p class="sub">18 OPEN SLOTS • PAYMENT VERIFICATION REQUIRED</p></section>
-<section class="card"><div class="grid"><div class="stats">Open slots<b>18</b></div><div class="stats">Entry fee<b>₹40</b></div></div><h2 style="margin-top:18px">Slot availability</h2><div id="slots" class="slotgrid"></div><p class="note">Grey = locked (1–7) • Green = available • Blue-grey = allotted</p></section>
+<section class="card"><div class="grid"><div class="stats">Open slots<b>18</b></div><div class="stats">Entry fee<b>₹40</b></div></div><h2 style="margin-top:18px">Slot availability</h2><div id="slots" class="slotgrid"></div><p class="note">Grey = locked (1–7) • Blue-grey = available • Green = allotted</p></section>
 <section class="card"><h2>Team registration</h2>
 <form id="regForm">
 <label>Team name</label><input name="team" required maxlength="40" placeholder="Enter team name">
@@ -70,7 +70,7 @@ function renderSlots(taken=[]) {
 slotUnsub=slotRef.onSnapshot(s=>{
   if(!s.exists){renderSlots([]);document.querySelector('#slots + .note').textContent='Slots will appear after the admin initializes the online system.';return;}
   renderSlots(s.data().taken || []);
-  document.querySelector('#slots + .note').textContent='Grey = locked (1–7) • Green = available • Blue-grey = allotted';
+  document.querySelector('#slots + .note').textContent='Grey = locked (1–7) • Blue-grey = available • Green = allotted';
 },e=>{console.error(e);msg('msg','Could not load live slots. Please refresh and try again.');});
 
 document.getElementById('submit').onclick=async e=>{
