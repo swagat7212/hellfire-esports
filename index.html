@@ -102,7 +102,7 @@ function renderAdmin(rows){
   if(!rows.length){box.innerHTML='<p class="note">No registrations yet.</p>';return;}
   box.innerHTML=rows.map(x=>{
     const d=x.data(), created=d.createdAt?.toDate?d.createdAt.toDate().toLocaleString():'Just now';
-    return `<div class="item"><b>${esc(d.team)}</b> <span class="pill">${esc(d.status)}</span><br><small>${esc(d.captain)} • ${esc(d.phone)} • ${esc(created)}</small><p class="note">Players: ${(d.players||[]).map(esc).join(' / ')}<br>UTR: ${esc(d.utr)}<br>Slot: ${d.slot?'#'+String(d.slot).padStart(2,'0'):'Not assigned'}</p>${d.status==='PENDING'?`<div class="grid"><button data-action="approve" data-id="${x.id}">Approve & allot slot</button><button class="danger" data-action="reject" data-id="${x.id}">Reject</button></div>`:d.status==='APPROVED'?`<button class="danger" data-action="cancel" data-id="${x.id}">Cancel approval & free slot</button>`:''}</div>`;
+    return `<div class="item"><b>${esc(d.team)}</b> <span class="pill">${esc(d.status)}</span><br><small>${esc(d.captain)} • ${esc(d.phone)} • ${esc(created)}</small><p class="note">Players: ${(d.players||[]).map(esc).join(' / ')}<br>UTR: ${esc(d.utr)}<br>Slot: ${d.slot?'#'+String(d.slot).padStart(2,'0'):'Not assigned'}</p>${d.status==='PENDING'?`<div class="grid"><button data-action="approve" data-id="${x.id}">Approve & allot slot</button><button class="danger" data-action="reject" data-id="${x.id}">Reject</button></div>`:d.status==='APPROVED'?`<button class="danger" data-action="cancel" data-id="${x.id}">Cancel approval & free slot</button>`:d.status==='CANCELLED'?`<button class="danger" data-action="deleteCancelled" data-id="${x.id}">Delete permanently</button>`:''}</div>`;
   }).join('');
 }
 function startAdminListener(){
@@ -131,6 +131,13 @@ document.getElementById('requests').onclick=async e=>{
     const ref=db.collection('registrations').doc(id);
     if(action==='reject'){
       await ref.update({status:'REJECTED',reviewedAt:firebase.firestore.FieldValue.serverTimestamp()});
+    } else if(action==='deleteCancelled'){
+      const row=currentRows.find(r=>r.id===id);
+      const teamName=row?.data()?.team || 'this cancelled registration';
+      if(!confirm(`Permanently delete ${teamName} from the admin list? This cannot be undone.`))return;
+      const latest=await ref.get();
+      if(!latest.exists||latest.data().status!=='CANCELLED')throw new Error('Only cancelled registrations can be permanently deleted.');
+      await ref.delete();
     } else if(action==='cancel'){
       const row=currentRows.find(r=>r.id===id);
       const teamName=row?.data()?.team || 'this team';
