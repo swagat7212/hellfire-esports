@@ -42,7 +42,12 @@ label{display:block;font-weight:650;margin:12px 0 6px}input{width:100%;padding:1
 <button class="secondary hidden" id="adminLogout">Logout</button>
 <div id="adminMsg" class="note"></div>
 <div id="admin" class="hidden"><div id="requests"></div></div>
-</section></main>
+</section>
+<section class="card"><h2>Check Registration Status</h2><p class="note">Enter the same team name and UTR used during registration to check approval and your allotted slot.</p>
+<label>Team name</label><input id="checkTeam" maxlength="40" placeholder="Enter your registered team name">
+<label>UPI transaction ID / UTR</label><input id="checkUtr" maxlength="40" placeholder="Enter your UTR">
+<button id="checkStatus">Check status</button><div id="statusResult" class="note" aria-live="polite"></div></section>
+</main>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
@@ -73,6 +78,35 @@ slotUnsub=slotRef.onSnapshot(s=>{
   document.querySelector('#slots + .note').textContent='Grey = locked (1–7) • Blue-grey = available • Green = allotted';
 },e=>{console.error(e);msg('msg','Could not load live slots. Please refresh and try again.');});
 
+async function makeLookupId(team, utr){
+  const raw=team.trim().toLowerCase()+'|'+utr.trim().toLowerCase();
+  const bytes=new TextEncoder().encode(raw);
+  const digest=await crypto.subtle.digest('SHA-256',bytes);
+  return Array.from(new Uint8Array(digest)).map(b=>b.toString(16).padStart(2,'0')).join('');
+}
+function statusText(data){
+  const status=String(data.status||'').toUpperCase();
+  if(status==='APPROVED')return `<b style="color:#9dffc0">APPROVED</b><br>Your team slot: <b>#${String(data.slot).padStart(2,'0')}</b>`;
+  if(status==='PENDING')return `<b style="color:#ffdb8a">PENDING</b><br>Your payment is waiting for admin verification. Slot is not confirmed yet.`;
+  if(status==='REJECTED')return `<b style="color:#ff8b8b">REJECTED</b><br>Your registration was not approved. Please contact the admin.`;
+  if(status==='CANCELLED')return `<b style="color:#ff8b8b">CANCELLED</b><br>Your previous slot allotment has been cancelled. Please contact the admin.`;
+  return 'Status not available. Please contact the admin.';
+}
+document.getElementById('checkStatus').onclick=async()=>{
+  const team=document.getElementById('checkTeam').value.trim();
+  const utr=document.getElementById('checkUtr').value.trim();
+  const out=document.getElementById('statusResult');
+  if(!team||!utr){out.textContent='Please enter both team name and UTR.';return;}
+  const btn=document.getElementById('checkStatus');btn.disabled=true;out.textContent='Checking…';
+  try{
+    const id=await makeLookupId(team,utr);
+    const snap=await db.collection('publicStatus').doc(id).get();
+    if(!snap.exists){out.textContent='Registration not found. Check the team name and UTR, then try again.';return;}
+    out.innerHTML=statusText(snap.data());
+  }catch(err){console.error(err);out.textContent='Could not check status. Please try again later.';}
+  finally{btn.disabled=false;}
+};
+
 document.getElementById('submit').onclick=async e=>{
   e.preventDefault();
   const f=document.getElementById('regForm'); if(!f.reportValidity()) return;
@@ -82,12 +116,17 @@ document.getElementById('submit').onclick=async e=>{
   try {
     const ss=await slotRef.get();
     if(!ss.exists) throw new Error('Online slots are not initialized yet. Please try again in a few minutes.');
-    await db.collection('registrations').add({
-      team:f.elements.team.value.trim(), captain:f.elements.captain.value.trim(),
-      phone:f.elements.phone.value.trim(),
+    const team=f.elements.team.value.trim();
+    const lookupId=await makeLookupId(team,utr);
+    const regRef=db.collection('registrations').doc();
+    const batch=db.batch();
+    batch.set(regRef,{
+      team, captain:f.elements.captain.value.trim(), phone:f.elements.phone.value.trim(),
       players:[f.elements.p1.value.trim(),f.elements.p2.value.trim(),f.elements.p3.value.trim(),f.elements.p4.value.trim()],
-      utr, status:'PENDING', createdAt:firebase.firestore.FieldValue.serverTimestamp()
+      utr, lookupId, status:'PENDING', createdAt:firebase.firestore.FieldValue.serverTimestamp()
     });
+    batch.set(db.collection('publicStatus').doc(lookupId),{lookupId,status:'PENDING',slot:null,createdAt:firebase.firestore.FieldValue.serverTimestamp()});
+    await batch.commit();
     f.reset(); document.getElementById('utr').value='';
     msg('msg','Registration submitted! Payment verification is pending. Your slot is not confirmed until admin approval.');
   } catch(err) { console.error(err); msg('msg',err.message || 'Could not submit registration. Please try again.'); }
@@ -107,7 +146,7 @@ function renderAdmin(rows){
 }
 function startAdminListener(){
   if(requestsUnsub)requestsUnsub();
-  requestsUnsub=db.collection('registrations').orderBy('createdAt','desc').onSnapshot(s=>{currentRows=s.docs;renderAdmin(currentRows);},e=>{console.error(e);msg('adminMsg','Could not load registrations. Check Firestore Rules.');});
+  requestsUnsub=db.collection('registrations').orderBy('createdAt','desc').onSnapshot(s=>{currentRows=s.docs;renderAdmin(currentRows);s.docs.forEach(async d=>{const data=d.data();if(!data.lookupId&&data.team&&data.utr){try{const lookupId=await makeLookupId(data.team,data.utr);await d.ref.update({lookupId});await db.collection('publicStatus').doc(lookupId).set({lookupId,status:data.status||'PENDING',slot:data.slot||null,createdAt:firebase.firestore.FieldValue.serverTimestamp()});}catch(err){console.error('Could not prepare public status lookup',err);}}});},e=>{console.error(e);msg('adminMsg','Could not load registrations. Check Firestore Rules.');});
 }
 document.getElementById('adminLogin').onclick=async()=>{
   const email=document.getElementById('adminEmail').value.trim(), password=document.getElementById('adminPassword').value;
@@ -130,7 +169,9 @@ document.getElementById('requests').onclick=async e=>{
   try{
     const ref=db.collection('registrations').doc(id);
     if(action==='reject'){
+      const row=currentRows.find(r=>r.id===id);const lookupId=row?.data()?.lookupId;
       await ref.update({status:'REJECTED',reviewedAt:firebase.firestore.FieldValue.serverTimestamp()});
+      if(lookupId)await db.collection('publicStatus').doc(lookupId).set({lookupId,status:'REJECTED',slot:null},{merge:true});
     } else if(action==='deleteTerminal'){
       const row=currentRows.find(r=>r.id===id);
       const status=row?.data()?.status;
@@ -138,7 +179,9 @@ document.getElementById('requests').onclick=async e=>{
       if(!confirm(`Permanently delete ${teamName} (${status}) from the admin list? This cannot be undone.`))return;
       const latest=await ref.get();
       if(!latest.exists||!['CANCELLED','REJECTED'].includes(latest.data().status))throw new Error('Only cancelled or rejected registrations can be permanently deleted.');
+      const lookupId=latest.data().lookupId;
       await ref.delete();
+      if(lookupId)await db.collection('publicStatus').doc(lookupId).delete();
     } else if(action==='cancel'){
       const row=currentRows.find(r=>r.id===id);
       const teamName=row?.data()?.team || 'this team';
@@ -152,6 +195,7 @@ document.getElementById('requests').onclick=async e=>{
         const taken=sr.data().taken||[];
         tx.update(ref,{status:'CANCELLED',cancelledSlot:slot||null,slot:firebase.firestore.FieldValue.delete(),reviewedAt:firebase.firestore.FieldValue.serverTimestamp()});
         if(slot && taken.includes(slot))tx.update(slotRef,{taken:taken.filter(n=>n!==slot)});
+        const lookupId=rr.data().lookupId;if(lookupId)tx.set(db.collection('publicStatus').doc(lookupId),{lookupId,status:'CANCELLED',slot:null},{merge:true});
       });
     } else if(action==='approve'){
       await db.runTransaction(async tx=>{
@@ -161,6 +205,7 @@ document.getElementById('requests').onclick=async e=>{
         if(!slot)throw new Error('All 18 open slots (8–25) are already allotted.');
         tx.update(ref,{status:'APPROVED',slot,reviewedAt:firebase.firestore.FieldValue.serverTimestamp()});
         tx.update(slotRef,{taken:[...taken,slot]});
+        const lookupId=rr.data().lookupId;if(lookupId)tx.set(db.collection('publicStatus').doc(lookupId),{lookupId,status:'APPROVED',slot},{merge:true});
       });
     }
   }catch(err){console.error(err);alert(err.message||'Action failed.');}
