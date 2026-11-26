@@ -35,6 +35,12 @@ label{display:block;font-weight:650;margin:12px 0 6px}input{width:100%;padding:1
 
 <button id="submit">Submit registration for verification</button>
 <p class="note">A slot is not confirmed until the admin verifies your payment. Do not pay twice for the same team.</p><div id="msg" class="note"></div></section>
+
+<section class="card"><h2>Check registration status</h2><p class="note">Enter the same team name and UTR used during registration.</p>
+<label>Team name</label><input id="checkTeam" maxlength="40" placeholder="Enter team name">
+<label>UPI transaction ID / UTR</label><input id="checkUtr" maxlength="40" placeholder="Enter UTR">
+<button class="secondary" id="checkStatus" type="button">Check registration</button>
+<div id="statusResult" class="note" aria-live="polite"></div></section>
 <section class="card"><h2>Admin login</h2><p class="note">Only the authorized Firebase admin account can view registrations and manage slots.</p>
 <label>Admin email</label><input id="adminEmail" type="email" autocomplete="username" placeholder="Your Firebase admin email">
 <label>Admin password</label><input id="adminPassword" type="password" autocomplete="current-password" placeholder="Your Firebase admin password">
@@ -42,12 +48,7 @@ label{display:block;font-weight:650;margin:12px 0 6px}input{width:100%;padding:1
 <button class="secondary hidden" id="adminLogout">Logout</button>
 <div id="adminMsg" class="note"></div>
 <div id="admin" class="hidden"><div id="requests"></div></div>
-</section>
-<section class="card"><h2>Check Registration Status</h2><p class="note">Enter the same team name and UTR used during registration to check approval and your allotted slot.</p>
-<label>Team name</label><input id="checkTeam" maxlength="40" placeholder="Enter your registered team name">
-<label>UPI transaction ID / UTR</label><input id="checkUtr" maxlength="40" placeholder="Enter your UTR">
-<button id="checkStatus">Check status</button><div id="statusResult" class="note" aria-live="polite"></div></section>
-</main>
+</section></main>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
@@ -65,151 +66,177 @@ firebase.initializeApp(firebaseConfig);
 const auth = firebase.auth();
 const db = firebase.firestore();
 const esc = s => String(s ?? '').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-const msg = (id, text) => document.getElementById(id).textContent = text;
-let slotUnsub = null, requestsUnsub = null, currentRows = [];
+const msg = (id, text) => { const el=document.getElementById(id); if(el) el.textContent=text; };
+let requestsUnsub = null, currentRows = [];
 const slotRef = db.collection('slotStatus').doc('main');
-function renderSlots(taken=[]) {
-  const box=document.getElementById('slots');
-  box.innerHTML=Array.from({length:25},(_,i)=>{const n=i+1, locked=n<=7, used=taken.includes(n);return `<div class="slot ${locked?'locked':used?'':'free'}">#${String(n).padStart(2,'0')}<br><small>${locked?'LOCKED':used?'TAKEN':'OPEN'}</small></div>`}).join('');
-}
-slotUnsub=slotRef.onSnapshot(s=>{
-  if(!s.exists){renderSlots([]);document.querySelector('#slots + .note').textContent='Slots will appear after the admin initializes the online system.';return;}
-  renderSlots(s.data().taken || []);
-  document.querySelector('#slots + .note').textContent='Grey = locked (1–7) • Blue-grey = available • Green = allotted';
-},e=>{console.error(e);msg('msg','Could not load live slots. Please refresh and try again.');});
 
-async function makeLookupId(team, utr){
+async function makeLookupId(team, utr) {
   const raw=team.trim().toLowerCase()+'|'+utr.trim().toLowerCase();
   const bytes=new TextEncoder().encode(raw);
   const digest=await crypto.subtle.digest('SHA-256',bytes);
   return Array.from(new Uint8Array(digest)).map(b=>b.toString(16).padStart(2,'0')).join('');
 }
-function statusText(data){
+function renderSlots(taken=[]) {
+  const box=document.getElementById('slots');
+  box.innerHTML=Array.from({length:25},(_,i)=>{
+    const n=i+1, locked=n<=7, used=taken.includes(n);
+    return `<div class="slot ${locked?'locked':used?'':'free'}">#${String(n).padStart(2,'0')}<br><small>${locked?'LOCKED':used?'TAKEN':'OPEN'}</small></div>`;
+  }).join('');
+}
+slotRef.onSnapshot(s=>{
+  if(!s.exists){renderSlots([]);document.querySelector('#slots + .note').textContent='Slots will appear after admin initializes the online system.';return;}
+  renderSlots(s.data().taken||[]);
+},e=>{console.error('Slot listener:',e);msg('msg','Could not load live slots. Check Firestore Rules and refresh.');});
+
+function statusText(data) {
   const status=String(data.status||'').toUpperCase();
-  if(status==='APPROVED')return `<b style="color:#9dffc0">APPROVED</b><br>Your team slot: <b>#${String(data.slot).padStart(2,'0')}</b>`;
-  if(status==='PENDING')return `<b style="color:#ffdb8a">PENDING</b><br>Your payment is waiting for admin verification. Slot is not confirmed yet.`;
-  if(status==='REJECTED')return `<b style="color:#ff8b8b">REJECTED</b><br>Your registration was not approved. Please contact the admin.`;
-  if(status==='CANCELLED')return `<b style="color:#ff8b8b">CANCELLED</b><br>Your previous slot allotment has been cancelled. Please contact the admin.`;
+  if(status==='APPROVED') return `<b style="color:#9dffc0">APPROVED</b><br>Your team slot: <b>#${String(data.slot).padStart(2,'0')}</b>`;
+  if(status==='PENDING') return `<b style="color:#ffdb8a">PENDING</b><br>Payment is waiting for admin verification. Slot is not confirmed yet.`;
+  if(status==='REJECTED') return `<b style="color:#ff8b8b">REJECTED</b><br>Your registration was not approved. Please contact the admin.`;
+  if(status==='CANCELLED') return `<b style="color:#ff8b8b">CANCELLED</b><br>Your previous slot allotment has been cancelled. Please contact the admin.`;
   return 'Status not available. Please contact the admin.';
 }
 document.getElementById('checkStatus').onclick=async()=>{
   const team=document.getElementById('checkTeam').value.trim();
   const utr=document.getElementById('checkUtr').value.trim();
-  const out=document.getElementById('statusResult');
+  const out=document.getElementById('statusResult'), btn=document.getElementById('checkStatus');
   if(!team||!utr){out.textContent='Please enter both team name and UTR.';return;}
-  const btn=document.getElementById('checkStatus');btn.disabled=true;out.textContent='Checking…';
-  try{
+  btn.disabled=true;out.textContent='Checking registration…';
+  try {
     const id=await makeLookupId(team,utr);
     const snap=await db.collection('publicStatus').doc(id).get();
-    if(!snap.exists){out.textContent='Registration not found. Check the team name and UTR, then try again.';return;}
+    if(!snap.exists){out.textContent='Registration not found. Check the team name and UTR.';return;}
     out.innerHTML=statusText(snap.data());
-  }catch(err){console.error(err);out.textContent='Could not check status. Please try again later.';}
-  finally{btn.disabled=false;}
+  } catch(err) { console.error('Status check:',err);out.textContent='Could not check status: '+(err.message||'Please try again.'); }
+  finally {btn.disabled=false;}
 };
 
 document.getElementById('submit').onclick=async e=>{
   e.preventDefault();
-  const f=document.getElementById('regForm'); if(!f.reportValidity()) return;
+  const f=document.getElementById('regForm');
+  if(!f.reportValidity()) return;
   const utr=document.getElementById('utr').value.trim();
   if(!utr){msg('msg','Please enter your UPI transaction ID / UTR.');return;}
-  const submit=document.getElementById('submit'); submit.disabled=true; submit.textContent='Submitting…';
+  const btn=document.getElementById('submit');btn.disabled=true;btn.textContent='Submitting…';
   try {
     const ss=await slotRef.get();
-    if(!ss.exists) throw new Error('Online slots are not initialized yet. Please try again in a few minutes.');
-    const team=f.elements.team.value.trim();
-    const lookupId=await makeLookupId(team,utr);
+    if(!ss.exists) throw new Error('Online slots are not initialized. Please login as admin once, then try again.');
+    const team=f.elements.team.value.trim(), lookupId=await makeLookupId(team,utr);
     const regRef=db.collection('registrations').doc();
     const batch=db.batch();
     batch.set(regRef,{
-      team, captain:f.elements.captain.value.trim(), phone:f.elements.phone.value.trim(),
+      team,captain:f.elements.captain.value.trim(),phone:f.elements.phone.value.trim(),
       players:[f.elements.p1.value.trim(),f.elements.p2.value.trim(),f.elements.p3.value.trim(),f.elements.p4.value.trim()],
-      utr, lookupId, status:'PENDING', createdAt:firebase.firestore.FieldValue.serverTimestamp()
+      utr,lookupId,status:'PENDING',createdAt:firebase.firestore.FieldValue.serverTimestamp()
     });
-    batch.set(db.collection('publicStatus').doc(lookupId),{lookupId,status:'PENDING',slot:null,createdAt:firebase.firestore.FieldValue.serverTimestamp()});
+    batch.set(db.collection('publicStatus').doc(lookupId),{
+      lookupId,status:'PENDING',slot:null,createdAt:firebase.firestore.FieldValue.serverTimestamp()
+    });
     await batch.commit();
-    f.reset(); document.getElementById('utr').value='';
-    msg('msg','Registration submitted! Payment verification is pending. Your slot is not confirmed until admin approval.');
-  } catch(err) { console.error(err); msg('msg',err.message || 'Could not submit registration. Please try again.'); }
-  finally { submit.disabled=false; submit.textContent='Submit registration for verification'; }
+    f.reset();document.getElementById('utr').value='';
+    msg('msg','Registration submitted! Payment verification is pending. Check status using your team name and UTR.');
+  } catch(err) {console.error('Registration submit:',err);msg('msg',err.message||'Could not submit registration.');}
+  finally {btn.disabled=false;btn.textContent='Submit registration for verification';}
 };
 
 async function ensureSlotDoc(){
-  await db.runTransaction(async tx=>{const s=await tx.get(slotRef);if(!s.exists)tx.set(slotRef,{taken:[],initializedAt:firebase.firestore.FieldValue.serverTimestamp()});});
+  await db.runTransaction(async tx=>{
+    const s=await tx.get(slotRef);
+    if(!s.exists) tx.set(slotRef,{taken:[],initializedAt:firebase.firestore.FieldValue.serverTimestamp()});
+  });
 }
 function renderAdmin(rows){
   const box=document.getElementById('requests');
   if(!rows.length){box.innerHTML='<p class="note">No registrations yet.</p>';return;}
   box.innerHTML=rows.map(x=>{
-    const d=x.data(), created=d.createdAt?.toDate?d.createdAt.toDate().toLocaleString():'Just now';
-    return `<div class="item"><b>${esc(d.team)}</b> <span class="pill">${esc(d.status)}</span><br><small>${esc(d.captain)} • ${esc(d.phone)} • ${esc(created)}</small><p class="note">Players: ${(d.players||[]).map(esc).join(' / ')}<br>UTR: ${esc(d.utr)}<br>Slot: ${d.slot?'#'+String(d.slot).padStart(2,'0'):'Not assigned'}</p>${d.status==='PENDING'?`<div class="grid"><button data-action="approve" data-id="${x.id}">Approve & allot slot</button><button class="danger" data-action="reject" data-id="${x.id}">Reject</button></div>`:d.status==='APPROVED'?`<button class="danger" data-action="cancel" data-id="${x.id}">Cancel approval & free slot</button>`:(d.status==='CANCELLED'||d.status==='REJECTED')?`<button class="danger" data-action="deleteTerminal" data-id="${x.id}">Delete permanently</button>`:''}</div>`;
+    const d=x.data(),created=d.createdAt?.toDate?d.createdAt.toDate().toLocaleString():'Just now';
+    const actions=d.status==='PENDING'
+      ? `<div class="grid"><button data-action="approve" data-id="${x.id}">Approve & allot slot</button><button class="danger" data-action="reject" data-id="${x.id}">Reject</button></div>`
+      : d.status==='APPROVED'
+        ? `<button class="danger" data-action="cancel" data-id="${x.id}">Cancel approval & free slot</button>`
+        : ['CANCELLED','REJECTED'].includes(d.status)
+          ? `<button class="danger" data-action="deleteTerminal" data-id="${x.id}">Delete permanently</button>` : '';
+    return `<div class="item"><b>${esc(d.team)}</b> <span class="pill">${esc(d.status)}</span><br><small>${esc(d.captain)} • ${esc(d.phone)} • ${esc(created)}</small><p class="note">Players: ${(d.players||[]).map(esc).join(' / ')}<br>UTR: ${esc(d.utr)}<br>Slot: ${d.slot?'#'+String(d.slot).padStart(2,'0'):'Not assigned'}</p>${actions}</div>`;
   }).join('');
 }
+async function prepareLegacyLookup(doc){
+  const d=doc.data();
+  if(d.lookupId||!d.team||!d.utr) return;
+  const lookupId=await makeLookupId(d.team,d.utr);
+  await doc.ref.update({lookupId});
+  await db.collection('publicStatus').doc(lookupId).set({lookupId,status:d.status||'PENDING',slot:d.slot||null,createdAt:firebase.firestore.FieldValue.serverTimestamp()},{merge:true});
+}
 function startAdminListener(){
-  if(requestsUnsub)requestsUnsub();
-  requestsUnsub=db.collection('registrations').orderBy('createdAt','desc').onSnapshot(s=>{currentRows=s.docs;renderAdmin(currentRows);s.docs.forEach(async d=>{const data=d.data();if(!data.lookupId&&data.team&&data.utr){try{const lookupId=await makeLookupId(data.team,data.utr);await d.ref.update({lookupId});await db.collection('publicStatus').doc(lookupId).set({lookupId,status:data.status||'PENDING',slot:data.slot||null,createdAt:firebase.firestore.FieldValue.serverTimestamp()});}catch(err){console.error('Could not prepare public status lookup',err);}}});},e=>{console.error(e);msg('adminMsg','Could not load registrations. Check Firestore Rules.');});
+  if(requestsUnsub) requestsUnsub();
+  requestsUnsub=db.collection('registrations').orderBy('createdAt','desc').onSnapshot(s=>{
+    currentRows=s.docs;renderAdmin(currentRows);
+    s.docs.forEach(d=>prepareLegacyLookup(d).catch(err=>console.error('Legacy lookup migration:',err)));
+  },e=>{console.error('Admin registrations listener:',e);msg('adminMsg','Could not load registrations. Check that the signed-in UID matches the admin UID and Firestore Rules are published.');});
 }
 document.getElementById('adminLogin').onclick=async()=>{
-  const email=document.getElementById('adminEmail').value.trim(), password=document.getElementById('adminPassword').value;
+  const email=document.getElementById('adminEmail').value.trim(),password=document.getElementById('adminPassword').value;
   if(!email||!password){msg('adminMsg','Enter your admin email and password.');return;}
-  try{
+  try {
     msg('adminMsg','Signing in…');
     const cred=await auth.signInWithEmailAndPassword(email,password);
-    if(cred.user.uid!==ADMIN_UID){await auth.signOut();throw new Error('This account is not the authorized admin account.');}
+    if(cred.user.uid!==ADMIN_UID){await auth.signOut();throw new Error('Wrong admin account. Signed-in UID does not match the ADMIN_UID in this file.');}
     await ensureSlotDoc();
     document.getElementById('admin').classList.remove('hidden');
     document.getElementById('adminLogout').classList.remove('hidden');
     document.getElementById('adminLogin').classList.add('hidden');
-    msg('adminMsg','Admin logged in securely.'); startAdminListener();
-  }catch(err){console.error(err);msg('adminMsg',err.message||'Login failed.');}
+    msg('adminMsg','Admin logged in securely.');startAdminListener();
+  } catch(err) {console.error('Admin login:',err);msg('adminMsg',err.message||'Login failed.');}
 };
-document.getElementById('adminLogout').onclick=async()=>{if(requestsUnsub)requestsUnsub();requestsUnsub=null;await auth.signOut();document.getElementById('admin').classList.add('hidden');document.getElementById('adminLogout').classList.add('hidden');document.getElementById('adminLogin').classList.remove('hidden');msg('adminMsg','Logged out.');};
+document.getElementById('adminLogout').onclick=async()=>{
+  if(requestsUnsub) requestsUnsub();requestsUnsub=null;await auth.signOut();
+  document.getElementById('admin').classList.add('hidden');
+  document.getElementById('adminLogout').classList.add('hidden');
+  document.getElementById('adminLogin').classList.remove('hidden');msg('adminMsg','Logged out.');
+};
 document.getElementById('requests').onclick=async e=>{
-  const b=e.target.closest('button[data-action]');if(!b)return;
-  const id=b.dataset.id, action=b.dataset.action;b.disabled=true;
-  try{
-    const ref=db.collection('registrations').doc(id);
+  const btn=e.target.closest('button[data-action]');if(!btn)return;
+  const id=btn.dataset.id,action=btn.dataset.action,ref=db.collection('registrations').doc(id);
+  btn.disabled=true;
+  try {
     if(action==='reject'){
-      const row=currentRows.find(r=>r.id===id);const lookupId=row?.data()?.lookupId;
-      await ref.update({status:'REJECTED',reviewedAt:firebase.firestore.FieldValue.serverTimestamp()});
-      if(lookupId)await db.collection('publicStatus').doc(lookupId).set({lookupId,status:'REJECTED',slot:null},{merge:true});
-    } else if(action==='deleteTerminal'){
-      const row=currentRows.find(r=>r.id===id);
-      const status=row?.data()?.status;
-      const teamName=row?.data()?.team || 'this registration';
-      if(!confirm(`Permanently delete ${teamName} (${status}) from the admin list? This cannot be undone.`))return;
-      const latest=await ref.get();
-      if(!latest.exists||!['CANCELLED','REJECTED'].includes(latest.data().status))throw new Error('Only cancelled or rejected registrations can be permanently deleted.');
-      const lookupId=latest.data().lookupId;
-      await ref.delete();
-      if(lookupId)await db.collection('publicStatus').doc(lookupId).delete();
-    } else if(action==='cancel'){
-      const row=currentRows.find(r=>r.id===id);
-      const teamName=row?.data()?.team || 'this team';
-      if(!confirm(`Cancel approval for ${teamName} and free its slot? This cannot be undone automatically.`))return;
       await db.runTransaction(async tx=>{
-        const rr=await tx.get(ref);
-        if(!rr.exists||rr.data().status!=='APPROVED')throw new Error('This team is no longer approved.');
-        const slot=rr.data().slot;
-        const sr=await tx.get(slotRef);
-        if(!sr.exists)throw new Error('Slot list is not initialized.');
-        const taken=sr.data().taken||[];
-        tx.update(ref,{status:'CANCELLED',cancelledSlot:slot||null,slot:firebase.firestore.FieldValue.delete(),reviewedAt:firebase.firestore.FieldValue.serverTimestamp()});
-        if(slot && taken.includes(slot))tx.update(slotRef,{taken:taken.filter(n=>n!==slot)});
-        const lookupId=rr.data().lookupId;if(lookupId)tx.set(db.collection('publicStatus').doc(lookupId),{lookupId,status:'CANCELLED',slot:null},{merge:true});
+        const rr=await tx.get(ref);if(!rr.exists||rr.data().status!=='PENDING')throw new Error('This registration is no longer pending.');
+        const d=rr.data();tx.update(ref,{status:'REJECTED',reviewedAt:firebase.firestore.FieldValue.serverTimestamp()});
+        if(d.lookupId)tx.set(db.collection('publicStatus').doc(d.lookupId),{lookupId:d.lookupId,status:'REJECTED',slot:null},{merge:true});
       });
     } else if(action==='approve'){
       await db.runTransaction(async tx=>{
         const rr=await tx.get(ref);if(!rr.exists||rr.data().status!=='PENDING')throw new Error('This registration is no longer pending.');
         const sr=await tx.get(slotRef);if(!sr.exists)throw new Error('Slot list is not initialized.');
-        const taken=sr.data().taken||[];let slot=0;for(let n=8;n<=25;n++)if(!taken.includes(n)){slot=n;break;}
+        const taken=sr.data().taken||[];let slot=0;
+        for(let n=8;n<=25;n++)if(!taken.includes(n)){slot=n;break;}
         if(!slot)throw new Error('All 18 open slots (8–25) are already allotted.');
-        tx.update(ref,{status:'APPROVED',slot,reviewedAt:firebase.firestore.FieldValue.serverTimestamp()});
+        const d=rr.data();tx.update(ref,{status:'APPROVED',slot,reviewedAt:firebase.firestore.FieldValue.serverTimestamp()});
         tx.update(slotRef,{taken:[...taken,slot]});
-        const lookupId=rr.data().lookupId;if(lookupId)tx.set(db.collection('publicStatus').doc(lookupId),{lookupId,status:'APPROVED',slot},{merge:true});
+        if(d.lookupId)tx.set(db.collection('publicStatus').doc(d.lookupId),{lookupId:d.lookupId,status:'APPROVED',slot},{merge:true});
+      });
+    } else if(action==='cancel'){
+      const row=currentRows.find(r=>r.id===id),teamName=row?.data()?.team||'this team';
+      if(!confirm(`Cancel approval for ${teamName} and release its slot?`))return;
+      await db.runTransaction(async tx=>{
+        const rr=await tx.get(ref);if(!rr.exists||rr.data().status!=='APPROVED')throw new Error('This team is no longer approved.');
+        const sr=await tx.get(slotRef);if(!sr.exists)throw new Error('Slot list is not initialized.');
+        const d=rr.data(),slot=d.slot,taken=sr.data().taken||[];
+        tx.update(ref,{status:'CANCELLED',cancelledSlot:slot||null,slot:firebase.firestore.FieldValue.delete(),reviewedAt:firebase.firestore.FieldValue.serverTimestamp()});
+        if(slot&&taken.includes(slot))tx.update(slotRef,{taken:taken.filter(n=>n!==slot)});
+        if(d.lookupId)tx.set(db.collection('publicStatus').doc(d.lookupId),{lookupId:d.lookupId,status:'CANCELLED',slot:null},{merge:true});
+      });
+    } else if(action==='deleteTerminal'){
+      const row=currentRows.find(r=>r.id===id),status=row?.data()?.status,teamName=row?.data()?.team||'this registration';
+      if(!confirm(`Permanently delete ${teamName} (${status})? This cannot be undone.`))return;
+      await db.runTransaction(async tx=>{
+        const rr=await tx.get(ref);if(!rr.exists||!['CANCELLED','REJECTED'].includes(rr.data().status))throw new Error('Only cancelled or rejected registrations can be deleted.');
+        const lookupId=rr.data().lookupId;tx.delete(ref);
+        if(lookupId)tx.delete(db.collection('publicStatus').doc(lookupId));
       });
     }
-  }catch(err){console.error(err);alert(err.message||'Action failed.');}
-  finally{b.disabled=false;}
+  } catch(err) {console.error('Admin action '+action+':',err);alert((err.code?err.code+': ':'')+(err.message||'Action failed. Check Firestore Rules and admin UID.'));}
+  finally {btn.disabled=false;}
 };
 </script>
 </body></html>
