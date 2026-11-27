@@ -64,17 +64,11 @@ button,.btn{border:1px solid #ff3547;border-radius:9px;padding:12px 17px;backgro
 <label>ANNOUNCEMENT FOR PLAYERS</label><textarea id="announcementInput" rows="3" style="width:100%;padding:12px;background:#090e17;border:1px solid #344257;border-radius:9px;color:white" placeholder="Example: Report 15 minutes before match start."></textarea>
 <h3 style="margin:16px 0 4px">Select mode</h3><p class="note">Pehle mode select karein. Neeche usi mode ka match schedule aur room access manage hoga.</p>
 <div class="mode-picker" id="scheduleModePicker"><button type="button" class="active" onclick="selectScheduleMode('SOLO')">⚡ SOLO</button><button type="button" onclick="selectScheduleMode('DUO')">👥 DUO</button><button type="button" onclick="selectScheduleMode('SQUAD')">🏆 SQUAD</button></div>
-<h3 style="margin:16px 0 4px">Date &amp; timing</h3><div id="scheduleEditor"></div>
-<h3 style="margin:18px 0 5px">Room ID &amp; password</h3><p class="note">Room details ke liye alag mode select karein. Yeh Date &amp; Timing selection se independent hai.</p>
-<div class="mode-picker" id="roomModePicker"><button type="button" class="active" onclick="selectRoomMode('SOLO')">⚡ SOLO</button><button type="button" onclick="selectRoomMode('DUO')">👥 DUO</button><button type="button" onclick="selectRoomMode('SQUAD')">🏆 SQUAD</button></div>
-<div class="mode-panel"><h3 id="roomModeTitle">SOLO ROOM SETTINGS</h3>
-<label>ROOM ID</label><input id="roomId" placeholder="Enter SOLO room ID">
-<label>ROOM PASSWORD</label><input id="roomPassword" placeholder="Enter SOLO room password">
-<label>ROOM DETAILS UNLOCK TIME</label><input id="roomUnlock" type="datetime-local">
-</div>
+<h3 style="margin:16px 0 4px">Selected mode settings</h3><p class="note">Ek hi mode select karein. Usi mode ka Date &amp; Timing, Room ID aur Password neeche saath mein manage hoga.</p>
+<div id="scheduleEditor"></div>
 <label>SUPPORT WHATSAPP NUMBER (10 digits) — COMMON FOR ALL MODES</label><input id="supportPhone" inputmode="numeric" maxlength="10" placeholder="e.g. 9876543210">
 <button class="gold" onclick="saveMatchSettings()">SAVE SELECTED MODE SETTINGS</button><div id="matchMsg"></div>
-<p class="note">Date & Timing aur Room ID/Password ke mode selectors independent hain. Har mode ka apna schedule, Room ID, Password aur unlock time hai. Approved players ko unke registered mode ki room details hi milengi.</p>
+<p class="note">Each mode has its own Room ID, Password and unlock time. Approved players will only receive the room details for their registered mode. Registration schedule is controlled separately for each mode.</p>
 </div>
 </div>
 <div id="adminTab-registrations" class="hidden"><div class="card section"><h2>Registration requests</h2><div id="requests"></div></div></div>
@@ -160,12 +154,13 @@ function scheduleState(mode){let m=getSchedules()[mode]||{};let now=Date.now(),o
 function renderRegistrationSchedule(){let mode=$('regMode')?.value,el=$('regScheduleNotice');if(!el)return;if(!mode){el.textContent='Select a mode to view its match schedule and registration status.';return}let {m,active,label}=scheduleState(mode);el.innerHTML=`<b>${mode} • ${label}</b><br>Match: ${esc(fmtDate(m.matchAt))}<br>Registration: ${esc(fmtDate(m.openAt))} – ${esc(fmtDate(m.closeAt))}`;el.className=active?'msg':'warning'}
 function selectScheduleMode(mode){
  selectedScheduleMode=mode;
+ selectedRoomMode=mode;
  document.querySelectorAll('#scheduleModePicker button').forEach(b=>b.classList.toggle('active',b.textContent.includes(mode)));
  renderScheduleEditor();
 }
 function renderScheduleEditor(){
- let mode=selectedScheduleMode,m=getSchedules()[mode]||{};
- $('scheduleEditor').innerHTML=`<div class="adminrow"><h3>${mode} MATCH SCHEDULE</h3><div class="fieldgrid"><div class="wide"><label>MATCH DATE & TIME</label><input type="datetime-local" id="schedule_matchAt" value="${esc(m.matchAt||'')}"></div><div><label>REGISTRATION OPENS</label><input type="datetime-local" id="schedule_openAt" value="${esc(m.openAt||'')}"></div><div><label>REGISTRATION CLOSES</label><input type="datetime-local" id="schedule_closeAt" value="${esc(m.closeAt||'')}"></div><div class="wide"><label>REGISTRATION CONTROL</label><select id="schedule_status"><option value="CLOSED" ${m.status!=='OPEN'?'selected':''}>CLOSED</option><option value="OPEN" ${m.status==='OPEN'?'selected':''}>OPEN (within set dates)</option></select></div></div></div>`;
+ const mode=selectedScheduleMode,m=getSchedules()[mode]||{},room=privateMatchSettings.rooms?.[mode]||{},unlock=getRoomUnlocks()[mode]||'';
+ $('scheduleEditor').innerHTML=`<div class="mode-panel"><h3>${mode} SETTINGS</h3><h4>Date &amp; timing</h4><div class="fieldgrid"><div class="wide"><label>MATCH DATE & TIME</label><input type="datetime-local" id="schedule_matchAt" value="${esc(m.matchAt||'')}"></div><div><label>REGISTRATION OPENS</label><input type="datetime-local" id="schedule_openAt" value="${esc(m.openAt||'')}"></div><div><label>REGISTRATION CLOSES</label><input type="datetime-local" id="schedule_closeAt" value="${esc(m.closeAt||'')}"></div><div class="wide"><label>REGISTRATION CONTROL</label><select id="schedule_status"><option value="CLOSED" ${m.status!=='OPEN'?'selected':''}>CLOSED</option><option value="OPEN" ${m.status==='OPEN'?'selected':''}>OPEN (within set dates)</option></select></div></div><h4 style="margin-top:22px">${mode} Room details</h4><label>ROOM ID</label><input id="roomId" placeholder="Enter ${mode} room ID" value="${esc(room.roomId||'')}"><label>ROOM PASSWORD</label><input id="roomPassword" placeholder="Enter ${mode} room password" value="${esc(room.roomPassword||'')}"><label>ROOM DETAILS UNLOCK TIME</label><input id="roomUnlock" type="datetime-local" value="${esc(unlock)}"></div>`;
 }
 async function saveSchedules(){
  let mode=selectedScheduleMode;
@@ -189,25 +184,25 @@ async function approve(id){let x=load().find(r=>r.id===id);if(!x||x.status!=='PE
 async function reject(id){let reason=prompt('Enter rejection reason (example: UTR not found / incorrect amount):');if(reason===null)return;let x=load().find(r=>r.id===id);if(!x)return;x.rejectReason=reason.trim()||'Payment could not be verified.';try{await db.collection('registrations').doc(id).update({status:'REJECTED',rejectReason:x.rejectReason,reviewedAt:firebase.firestore.FieldValue.serverTimestamp()});await updatePublicStatus(x,'REJECTED',null)}catch(e){console.error(e);alert(e.message||'Could not reject registration.')}}
 async function removeApproval(id){let x=load().find(r=>r.id===id);if(!x||x.status!=='APPROVED')return;if(!confirm('Remove approval for '+x.team+'? Their slot will become available and their status will return to PENDING.'))return;try{await db.collection('registrations').doc(id).update({status:'PENDING',slot:firebase.firestore.FieldValue.delete(),rejectReason:firebase.firestore.FieldValue.delete(),reviewedAt:firebase.firestore.FieldValue.serverTimestamp()});await updateTakenSlot(modeOf(x),Number(x.slot),false);await updatePublicStatus(x,'PENDING',null)}catch(e){console.error(e);alert(e.message||'Could not remove approval.')}}
 async function deleteRegistration(id){let x=load().find(r=>r.id===id);if(!x)return;if(!confirm('Permanently delete registration for '+x.team+'? This cannot be undone.'))return;try{await db.collection('registrations').doc(id).delete();if(x.status==='APPROVED'&&x.slot)await updateTakenSlot(modeOf(x),Number(x.slot),false);if(x.lookupId)await db.collection('publicStatus').doc(x.lookupId).delete();else if(x.team&&x.utr)await db.collection('publicStatus').doc(await makeLookupId(x.team,x.utr)).delete()}catch(e){console.error(e);alert(e.message||'Could not delete registration.')}}
-function selectRoomMode(mode){
- selectedRoomMode=mode;
- document.querySelectorAll('#roomModePicker button').forEach(b=>b.classList.toggle('active',b.textContent.includes(mode)));
- $('roomModeTitle').textContent=mode+' ROOM SETTINGS';
- $('roomId').placeholder='Enter '+mode+' room ID';$('roomPassword').placeholder='Enter '+mode+' room password';
- const room=privateMatchSettings.rooms?.[mode]||{};$('roomId').value=room.roomId||'';$('roomPassword').value=room.roomPassword||'';
- $('roomUnlock').value=getRoomUnlocks()[mode]||'';
-}
 function loadMatchSettings(){
- let m=getMatchSettings();$('announcementInput').value=m.announcement||'';renderScheduleEditor();$('supportPhone').value=m.supportPhone||'';selectRoomMode(selectedRoomMode);
+ let m=getMatchSettings();$('announcementInput').value=m.announcement||'';$('supportPhone').value=m.supportPhone||'';selectedRoomMode=selectedScheduleMode;renderScheduleEditor();
 }
 async function saveMatchSettings(){
- if(!await saveSchedules())return;
+ const mode=selectedScheduleMode,matchAt=$('schedule_matchAt').value,openAt=$('schedule_openAt').value,closeAt=$('schedule_closeAt').value,status=$('schedule_status').value;
+ if(openAt&&closeAt&&new Date(closeAt)<=new Date(openAt)){alert(mode+': closing time must be after opening time.');return}
+ if(matchAt&&closeAt&&new Date(matchAt)<new Date(closeAt)){alert(mode+': match time should be after registration closes.');return}
  let phone=$('supportPhone').value.trim();if(phone&&!/^[0-9]{10}$/.test(phone)){alert('Enter a valid 10-digit support WhatsApp number.');return}
- const rooms={...(privateMatchSettings.rooms||{})};rooms[selectedRoomMode]={roomId:$('roomId').value.trim(),roomPassword:$('roomPassword').value.trim()};
- const unlocks={...getRoomUnlocks(),[selectedRoomMode]:$('roomUnlock').value};
- let m={announcement:$('announcementInput').value.trim(),roomUnlocks:unlocks,supportPhone:phone};
- try{await saveSharedSettings({matchSettings:m});await PRIVATE_REF.set({rooms,updatedAt:firebase.firestore.FieldValue.serverTimestamp()},{merge:true});privateMatchSettings={rooms};await syncApprovedRoomAccess();$('matchMsg').innerHTML='<div class="msg">'+selectedRoomMode+' room settings saved and synced. Other modes remain unchanged.</div>';renderHomeUpdates()}
- catch(e){alert(e.message||'Could not save match settings. Check Firestore Rules.')}
+ const rooms={...(privateMatchSettings.rooms||{})};rooms[mode]={roomId:$('roomId').value.trim(),roomPassword:$('roomPassword').value.trim()};
+ const unlocks={...getRoomUnlocks(),[mode]:$('roomUnlock').value};
+ const schedules={...getSchedules(),[mode]:{matchAt,openAt,closeAt,status}};
+ const matchSettings={announcement:$('announcementInput').value.trim(),roomUnlocks:unlocks,supportPhone:phone};
+ try{
+  await saveSharedSettings({schedules,matchSettings});
+  await PRIVATE_REF.set({rooms,updatedAt:firebase.firestore.FieldValue.serverTimestamp()},{merge:true});
+  privateMatchSettings={rooms};await syncApprovedRoomAccess();
+  $('matchMsg').innerHTML='<div class="msg">'+mode+' date, timing, Room ID and password saved together. Other modes remain unchanged.</div>';
+  renderHomeUpdates();renderRegistrationSchedule();
+ }catch(e){console.error(e);alert(e.message||'Could not save selected mode settings. Check Firestore Rules.')}
 }
 function renderHomeUpdates(){
  let m=getMatchSettings();
