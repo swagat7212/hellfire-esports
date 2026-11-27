@@ -60,11 +60,10 @@ button,.btn{border:1px solid #ff3547;border-radius:9px;padding:12px 17px;backgro
 <div id="adminTab-match" class="hidden">
 <div class="card section"><h2>Match controls & player updates</h2>
 <label>ANNOUNCEMENT FOR PLAYERS</label><textarea id="announcementInput" rows="3" style="width:100%;padding:12px;background:#090e17;border:1px solid #344257;border-radius:9px;color:white" placeholder="Example: Report 15 minutes before match start."></textarea>
-<h3 style="margin:16px 0 4px">Mode-wise tournament schedule</h3><p class="note">Set separate match date/time and registration opening/closing time for SOLO, DUO and SQUAD. Registration automatically follows the dates and admin status.</p>
-<div id="scheduleEditor"></div>
-<h3 style="margin:16px 0 5px">Select mode to manage its room</h3>
-<p class="note">Choose SOLO, DUO or SQUAD. Only the selected mode's Room ID, Password and unlock time will be shown here.</p>
-<div class="mode-picker" id="roomModePicker"><button type="button" class="active" onclick="selectRoomMode('SOLO')">⚡ SOLO</button><button type="button" onclick="selectRoomMode('DUO')">👥 DUO</button><button type="button" onclick="selectRoomMode('SQUAD')">🏆 SQUAD</button></div>
+<h3 style="margin:16px 0 4px">Select mode</h3><p class="note">Pehle mode select karein. Neeche usi mode ka match schedule aur room access manage hoga.</p>
+<div class="mode-picker" id="scheduleModePicker"><button type="button" class="active" onclick="selectScheduleMode('SOLO')">⚡ SOLO</button><button type="button" onclick="selectScheduleMode('DUO')">👥 DUO</button><button type="button" onclick="selectScheduleMode('SQUAD')">🏆 SQUAD</button></div>
+<h3 style="margin:16px 0 4px">Date & timing</h3><div id="scheduleEditor"></div>
+<h3 style="margin:18px 0 5px">Room ID & password</h3><p class="note">Yeh details sirf upar selected mode ke liye hain.</p>
 <div class="mode-panel"><h3 id="roomModeTitle">SOLO ROOM SETTINGS</h3>
 <label>ROOM ID</label><input id="roomId" placeholder="Enter SOLO room ID">
 <label>ROOM PASSWORD</label><input id="roomPassword" placeholder="Enter SOLO room password">
@@ -196,7 +195,7 @@ function selectRoomMode(mode){
  $('roomUnlock').value=getRoomUnlocks()[mode]||'';
 }
 function loadMatchSettings(){
- let m=getMatchSettings();$('announcementInput').value=m.announcement||'';renderScheduleEditor();$('supportPhone').value=m.supportPhone||'';selectRoomMode(selectedRoomMode);
+ let m=getMatchSettings();$('announcementInput').value=m.announcement||'';selectedRoomMode=selectedScheduleMode;renderScheduleEditor();$('supportPhone').value=m.supportPhone||'';selectRoomMode(selectedScheduleMode);
 }
 async function saveMatchSettings(){
  if(!await saveSchedules())return;
